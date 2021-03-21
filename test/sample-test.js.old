@@ -1,0 +1,28 @@
+const { expect } = require("chai");
+const assert = require('chai').assert;
+
+describe("Award a winner the NFT", function() {
+    beforeEach(async () => {
+        var accounts = await ethers.provider.listAccounts()
+        const foo = await ethers.getContractFactory("MyHorse")
+        const myhorse = await foo.deploy()
+        await myhorse.deployed()
+    });
+
+  it("Should display the Award emitted event for minting an NFT", async function() {
+
+    var tx = await myhorse.awardWinner(accounts[0], "www.foo.com", 1234);
+    rec = await tx.wait()
+    var z = rec.events.filter((x) => {return x.event == "Award"})
+    assert.isNotEmpty(z, "No event received")
+  });
+
+  it("Should not allow a non owner to award a token", async function() {
+
+
+    var tx = await myhorse.awardWinner({from:accounts[1]}, accounts[0], "www.foo.com", 1234);
+    rec = await tx.wait()
+    var z = rec.events.filter((x) => {return x.event == "Award"})
+    assert.isNotEmpty(z, "No event received")
+  });
+});
