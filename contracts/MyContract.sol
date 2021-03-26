@@ -1,31 +1,64 @@
 // SPDX-License-Identifier: GPL-3.0
+    /*
+    mapping(uint => uint16) winningHorses;
+    winningHorses[i] = horseIdx;
+    function redeem(raceIdx) {
+        winningHorse = winningHorses[raceIdx]
+        this.transfer(bets[winningHorse][msg.sender])
+    }
+    function redeemMultiple(raceIdxArray) {
+        amt = 0;
+        for i in raceIdxArray {
+            winningHorse = winningHorses[raceIdx]
+            amt += bets[winningHorse][msg.sender])
+        }
+        this.transfer(amt)
+    }
+    */
 pragma solidity ^0.7.0;
 
 import "sortition-sum-tree-factory/contracts/SortitionSumTreeFactory.sol";
 import "@pooltogether/uniform-random-number/contracts/UniformRandomNumber.sol";
 import "./horse.sol";
+import "hardhat/console.sol";
 
 interface foo {
-    function awardWinner(address, string memory, uint256) external view;
+    function awardWinner(address, string memory, bytes32) external returns(uint256);
 }
+
+// XXX: Future improvement to create a better user interface
+// XXX: subgraph (https://www.chainshot.com/article/the-graph-3-16-21)
 
 contract MyContract {
 
     using SortitionSumTreeFactory for SortitionSumTreeFactory.SortitionSumTrees;
-    // Ticket-weighted odds
     SortitionSumTreeFactory.SortitionSumTrees internal sortitionSumTrees;
     uint256 constant private MAX_TREE_LEAVES = 5;
 
     uint balance;
-    mapping(bytes32 => mapping(address => uint)) bets;
+    // race index, horse index, address of person placing bet, amount of bet
+    mapping(uint => mapping(uint16 => mapping(address => uint))) bets;
+
+
+    mapping(address => uint) public winnings;
     uint16 NUM_HORSES = 10;
     bytes32 seed = 0;
-    address horse;
-    address owner = msg.sender;
+    address public horse;
+    address public owner = msg.sender;
+    uint public raceIdx = 0;
 
     constructor(address _horse) {
         // Use the counterfactual stuff later
         horse = _horse;
+        genTrees();
+    }
+
+    function incrementRace() private {
+        raceIdx += 1;
+    }
+
+    function getBalance() public view returns(uint) {
+        return address(this).balance;
     }
 
     function updateHorseAddr(address addr) isOwner public {
@@ -62,37 +95,48 @@ contract MyContract {
             }
         }
 
+        // Multiple by a hundred to get the percentage back
+        horseTotal = horseTotal * 100;
         return horseTotal / total;
     }
 
-    // XXX: how much the sender would get if their horse wins not sure if this is a percent or what...
-    function payoffAmount(uint16 horseIdx) isValidHorse(horseIdx) public returns(uint) {
-        return sortitionSumTrees.stakeOf(getHorse(uint16(horseIdx)), bytes32(uint256(msg.sender)));
+    // The percentage of the pot a user will get if a given horse wins
+    // XXX: This has a rounding error, not sure how to fix that right now
+    function percentPayoffWinningHorse(uint16 horseIdx) isValidHorse(horseIdx) view public returns(uint) {
+        uint bet = getBet(horseIdx);
+        uint total = sortitionSumTrees.total(getHorse(uint16(horseIdx)));
+        uint percent_chance = (bet*100) / total;
+        return percent_chance;
     }
 
     // @notice Selects a user using a random number.  The random number will be uniformly bounded to the ticket totalSupply.
     // @param randomNumber The random number to use to select a user.
     // @return The winner
-    function drawNFT(uint256 randomNumber, uint16 winningHorseIdx) isValidHorse(winningHorseIdx) public returns (address) {
+    function drawNFT(uint256 randomNumber, uint16 winningHorseIdx) isValidHorse(winningHorseIdx) public view returns (address) {
         uint256 bound = sortitionSumTrees.total(getHorse(uint16(winningHorseIdx)));
         address selected;
+        uint256 token;
         if (bound == 0) {
             selected = address(0);
         } else {
-            uint256 token = UniformRandomNumber.uniform(randomNumber, bound);
+            token = UniformRandomNumber.uniform(randomNumber, bound);
             selected = address(uint256(sortitionSumTrees.draw(getHorse(uint16(winningHorseIdx)), token)));
         }
         return selected;
     }
 
+    function getBet(uint16 idx) public view returns(uint amt) {
+        amt = sortitionSumTrees.stakeOf(getHorse(idx), bytes32(uint256(msg.sender)));
+    }
+
+    // Place a bet on a given horse index number
     function placeBet(uint16 idx) isValidHorse(idx) public payable returns(uint){
         // idx has to be less then NUM_HORSES
-        bets[getHorse(idx)][msg.sender] = msg.value;
+        bets[raceIdx][idx][msg.sender] = msg.value;
+        balance += msg.value;
+        sortitionSumTrees.set(getHorse(idx), msg.value, bytes32(uint(msg.sender)));
+        sortitionSumTrees.set("all_horses", msg.value, bytes32(uint(idx)));
         return 0;
-
-        //balance += msg.value;
-        //sortitionSumTrees.set(getHorse(idx), msg.value, bytes32(uint256(msg.sender)));
-        //sortitionSumTrees.set("all_horses", msg.value, bytes32(uint(idx)));
     }
 
     function getHorse(uint16 idx) isValidHorse(idx) public view returns(bytes32) {
@@ -100,28 +144,33 @@ contract MyContract {
     }
 
     // mint once we have the attributes/data
-    function mintToken(address winner, string memory tokenURI, uint horseAttr) private {
+    function mintToken(address winner, string memory tokenURI, bytes32 horseAttr) private {
         // we'll have to call awardWinner on the horse.sol contract
-        foo(horse).awardWinner(winner, tokenURI, horseAttr);
+        bytes memory payload = abi.encodeWithSignature("awardWinner(address,string,bytes32)", winner, tokenURI, horseAttr);
+        address(horse).call(payload);
     }
 
-    function randomNumber() private returns(bytes32 blockHash) {
+    function randomNumber() private view returns(bytes32 blockHash) {
         return blockhash(block.number - 1);
     }
 
-    function getWinningHorse(uint _randomNumber) private returns(uint16 _horseIdx) {
-        uint token = UniformRandomNumber.uniform(_randomNumber, NUM_HORSES);
+    function getWinningHorse(uint _randomNumber) private view returns(uint16 _horseIdx) {
+        uint token = UniformRandomNumber.uniform(_randomNumber, balance);
         _horseIdx = uint16(uint(sortitionSumTrees.draw("all_horses", token)));
     }
 
     // helper function to just make sure things are working
-    function forceWinner(uint _randomNumber) public {
+    function forceWinner(uint _randomNumber) public returns(address){
+        //uint _randomNumber = uint(randomNumber());
         uint16 horseIdx = getWinningHorse(_randomNumber);
         address winner = drawNFT(_randomNumber, horseIdx);
-        mintToken(winner, "www.abc.com", uint(getHorse(horseIdx)));
+        mintToken(winner, "www.abc.com", getHorse(horseIdx));
         // XXX: Determine how to split profits evenly
         // XXX: For now just send the entire amount to a single winner
         payable(winner).transfer(address(this).balance);
+        incrementRace();
+
+        return winner;
     }
 
     modifier isValidHorse(uint16 idx) {

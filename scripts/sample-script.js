@@ -4,22 +4,35 @@
 // When running the script with `hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
 const hre = require("hardhat");
+const fs = require("fs");
 
 async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile 
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+    // Hardhat always runs the compile task when running scripts with its command
+    // line interface.
+    //
+    // If this script is run directly using `node` you may want to call compile 
+    // manually to make sure everything is compiled
+    // await hre.run('compile');
 
-  // We get the contract to deploy
-  const Greeter = await hre.ethers.getContractFactory("Greeter");
-  const greeter = await Greeter.deploy("Hello, Hardhat!");
+    // We get the contract to deploy
 
-  await greeter.deployed();
+    const MyHorse = await ethers.getContractFactory("MyHorse");
+    const myhorse = await MyHorse.deploy();
+    await myhorse.deployed();
+    console.log("myhorse deployed to: " + myhorse.address);
 
-  console.log("Greeter deployed to:", greeter.address);
+    const MyContract = await ethers.getContractFactory("MyContract");
+    const mycontract = await MyContract.deploy(myhorse.address);
+    await mycontract.deployed();
+    console.log("mycontract deployed to: " + mycontract.address);
+
+    const config = {
+        myhorseAddress: myhorse.address,
+        mycontractAddress: mycontract.address
+    }
+
+    fs.writeFileSync(".config.json", JSON.stringify(config, null, 2));
+
 }
 
 // We recommend this pattern to be able to use async/await everywhere

@@ -20,6 +20,7 @@ the "SingleRandomWinner.sol" should pick a winner and then call my horse contrac
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "hardhat/console.sol";
 contract MyHorse is ERC721 {
     /*
     enum attitudes = {
@@ -82,18 +83,21 @@ contract MyHorse is ERC721 {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
 
-    event Award(address addr, uint newItemId, uint horseAttr);
+    event Award(address addr, uint newItemId, bytes32 horseAttr);
 
     address owner = msg.sender;
     constructor() ERC721("Horse", "HORSE") {}
 
-    function awardWinner(address winner, string memory tokenURI, uint horseAttr) public allowed returns(uint256) {
+    function updateOwner(address _owner) allowed external {
+        owner = _owner;
+    }
+
+    function awardWinner(address winner, string memory tokenURI, bytes32 horseAttr) external allowed returns(uint256) {
         _tokenIds.increment();
 
-        uint256 newItemId = _tokenIds.current();
+        uint newItemId = _tokenIds.current();
         _mint(winner, newItemId);
         _setTokenURI(newItemId, tokenURI);
-        
         emit Award(winner, newItemId, horseAttr);
         return newItemId;
     }
